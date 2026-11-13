@@ -104,8 +104,29 @@ test("notify spawns notify-send with an args array and clean env", () => {
     return { stdout: null, exited: Promise.resolve(0) } as never;
   }) as never;
 
-  notify("gon (DM)", "hola", { spawn: spawn as never });
+  notify("gon (DM)", "hola", { spawn: spawn as never, platform: "linux" });
   expect(calls[0]!.cmd).toEqual(["notify-send", "-a", "zcord", "gon (DM)", "hola"]);
+});
+
+test("notify en macOS pasa un título y un cuerpo hostiles como argv, nunca dentro del script AppleScript", () => {
+  const calls: string[][] = [];
+  const spawn = ((cmd: string[]) => {
+    calls.push(cmd);
+    return { stdout: null, exited: Promise.resolve(0) } as never;
+  }) as never;
+
+  const title = 'gon "el jefe" (DM)';
+  const body = 'te dice "hola" y do shell script "touch /tmp/pwned"';
+  notify(title, body, { spawn: spawn as never, platform: "darwin" });
+
+  const cmd = calls[0]!;
+  expect(cmd[0]).toBe("osascript");
+  // El cuerpo y el título son los dos últimos argv, tal como los espera `on run argv`.
+  expect(cmd.slice(-2)).toEqual([body, title]);
+  // Ninguna línea del script contiene datos del mensaje: no hay inyección posible.
+  const script = cmd.slice(0, -2).join(" ");
+  expect(script).not.toContain("pwned");
+  expect(script).not.toContain("el jefe");
 });
 
 test("notify does not throw when the spawner throws synchronously", () => {

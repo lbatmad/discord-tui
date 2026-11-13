@@ -3,6 +3,7 @@ import { useKeyboard, usePaste } from "@opentui/solid";
 import { createSignal, onCleanup, onMount, Show, type JSX } from "solid-js";
 
 import type { RaEvent } from "../../auth/remote-auth";
+import { readClipboardText } from "../../uploads/clipboard";
 import { APP_NAME, APP_TAGLINE } from "../brand";
 import { THEMES } from "../theme";
 
@@ -29,14 +30,10 @@ export function LoginScreen(props: LoginScreenProps): JSX.Element {
   }
 
   async function pasteFromClipboard(): Promise<void> {
-    try {
-      const proc = Bun.spawn(["wl-paste", "--no-newline"], { stdout: "pipe", stderr: "ignore" });
-      const text = await new Response(proc.stdout).text();
-      await proc.exited;
-      if (text) await paste(text);
-    } catch {
-      // sin wl-paste o sin portapapeles
-    }
+    // El portapapeles lo lee el módulo de clipboard, que sabe qué binario usar en cada plataforma
+    // (`pbpaste` en macOS, `wl-paste` en Linux). Antes spawneaba `wl-paste` acá y en Mac no funcionaba.
+    const text = await readClipboardText();
+    if (text) await paste(text);
   }
 
   onMount(() => {

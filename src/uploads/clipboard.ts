@@ -1,4 +1,5 @@
 import { log } from "../log/logger";
+import { currentPlatform, type Platform } from "../proc/platform";
 import { spawnClean } from "../proc/spawn";
 
 type SpawnFn = (cmd: string[]) => { stdout: ReadableStream<Uint8Array> | null; exited: Promise<number> };
@@ -6,6 +7,7 @@ type SpawnFn = (cmd: string[]) => { stdout: ReadableStream<Uint8Array> | null; e
 export interface ClipboardDeps {
   spawn?: SpawnFn;
   now?: () => Date;
+  platform?: Platform;
 }
 
 const IMAGE_TYPES: Record<string, string> = {
@@ -50,6 +52,14 @@ export async function readClipboardImage(
   deps: ClipboardDeps = {},
 ): Promise<{ bytes: Uint8Array; mime: string; filename: string } | null> {
   const spawn = deps.spawn ?? defaultSpawn;
+  const now = (deps.now ?? ((): Date => new Date()))();
+  if ((deps.platform ?? currentPlatform()) === "darwin") {
+    // macOS no trae nada para sacar una imagen del portapapeles: `pngpaste` (brew install pngpaste) sí.
+    // Si no está, se degrada a null como cualquier otro fallo de lectura, y se pega por archivo o por ruta.
+    const bytes = await run(spawn, ["pngpaste", "-"]);
+    if (bytes === null) return null;
+    return { bytes, mime: "image/png", filename: `captura-${stamp(now)}.png` };
+  }
   const list = await run(spawn, ["wl-paste", "--list-types"]);
   if (list === null) return null;
   const types = new Set(
@@ -62,12 +72,13 @@ export async function readClipboardImage(
   if (mime === undefined) return null;
   const bytes = await run(spawn, ["wl-paste", "--type", mime]);
   if (bytes === null) return null;
-  const now = (deps.now ?? ((): Date => new Date()))();
   return { bytes, mime, filename: `captura-${stamp(now)}.${IMAGE_TYPES[mime]}` };
 }
 
 export async function readClipboardText(deps: ClipboardDeps = {}): Promise<string | null> {
-  const bytes = await run(deps.spawn ?? defaultSpawn, ["wl-paste", "--no-newline", "--type", "text/plain"]);
+  const spawn = deps.spawn ?? defaultSpawn;
+  const cmd = (deps.platform ?? currentPlatform()) === "darwin" ? ["pbpaste"] : ["wl-paste", "--no-newline", "--type", "text/plain"];
+  const bytes = await run(spawn, cmd);
   return bytes === null ? null : new TextDecoder().decode(bytes);
 }
 
@@ -106,6 +117,14 @@ export function filePathsFromPastedText(text: string): string[] {
 /** Archivos copiados desde un gestor de archivos (Nautilus, Thunar, Dolphin…): sus rutas. */
 export async function readClipboardFiles(deps: ClipboardDeps = {}): Promise<string[]> {
   const spawn = deps.spawn ?? defaultSpawn;
+  if ((deps.platform ?? currentPlatform()) === "darwin") {
+    // Finder no expone una lista de tipos como Wayland: se le pide a AppleScript la ruta del archivo copiado.
+    // Con varios archivos seleccionados devuelve una lista y AppleScript falla → [] (se adjunta por ruta).
+    const bytes = await run(spawn, ["osascript", "-e", "POSIX path of (the clipboard as «class furl»)"]);
+    if (bytes === null) return [];
+    const path = new TextDecoder().decode(bytes).trim();
+    return path.startsWith("/") ? [path] : [];
+  }
   const list = await run(spawn, ["wl-paste", "--list-types"]);
   if (list === null) return [];
   const types = new Set(new TextDecoder().decode(list).split("\n").map((l) => l.trim()));
@@ -115,10 +134,13 @@ export async function readClipboardFiles(deps: ClipboardDeps = {}): Promise<stri
   return bytes === null ? [] : filePathsFromUriList(new TextDecoder().decode(bytes));
 }
 
-/** Copia texto al portapapeles de Wayland (`wl-copy`). Devuelve si salió bien. */
+/** Copia texto al portapapeles del sistema (`wl-copy` en Linux, `pbcopy` en macOS). Devuelve si salió bien. */
 export async function writeClipboardText(
   text: string,
-  deps: { spawn?: (cmd: string[]) => { stdin: { write(data: string): unknown; end(): unknown } | null; exited: Promise<number> } } = {},
+  deps: {
+    spawn?: (cmd: string[]) => { stdin: { write(data: string): unknown; end(): unknown } | null; exited: Promise<number> };
+    platform?: Platform;
+  } = {},
 ): Promise<boolean> {
   try {
     const spawn =
@@ -127,7 +149,9 @@ export async function writeClipboardText(
         const proc = spawnClean(cmd, { stdin: "pipe", stdout: "ignore" });
         return { stdin: proc.stdin as unknown as { write(data: string): unknown; end(): unknown } | null, exited: proc.exited };
       });
-    const proc = spawn(["wl-copy", "--type", "text/plain;charset=utf-8"]);
+    const copyCmd =
+      (deps.platform ?? currentPlatform()) === "darwin" ? ["pbcopy"] : ["wl-copy", "--type", "text/plain;charset=utf-8"];
+    const proc = spawn(copyCmd);
     if (!proc.stdin) return false;
     proc.stdin.write(text);
     proc.stdin.end();
