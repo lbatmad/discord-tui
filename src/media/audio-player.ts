@@ -3,6 +3,8 @@ import { createSignal, type Accessor } from "solid-js";
 import { isAllowedImageHost } from "../images/cdn";
 import { log } from "../log/logger";
 import { spawnClean } from "../proc/spawn";
+import { currentPlatform, type Platform } from "../proc/platform";
+import { audioBackend } from "../voice/backend";
 
 /** Qué está sonando (un audio a la vez, como Discord). */
 export interface AudioPlayerState {
@@ -24,6 +26,7 @@ export interface AudioPlayerDeps {
   /** Salida de audio elegida en settings (PipeWire target), o null = la predeterminada. */
   target?: () => string | null;
   now?: () => number;
+  platform?: Platform;
 }
 
 export interface AudioPlayer {
@@ -77,9 +80,7 @@ export function createAudioPlayer(deps: AudioPlayerDeps = {}): AudioPlayer {
         { stdin: "ignore", stdout: "pipe" },
       );
       const target = deps.target?.() ?? null;
-      const cmd = ["pw-cat", "--playback", "--raw", "--format", "s16", "--rate", "48000", "--channels", "2"];
-      if (target) cmd.push("--target", target);
-      cmd.push("-");
+      const cmd = audioBackend(deps.platform).playback(target);
       const out = spawn(cmd, { stdin: decoder.stdout ?? "ignore", stdout: "ignore" });
       procs = [decoder, out];
       setState({ key, status: "playing", startedAt: now(), error: null });
@@ -93,7 +94,7 @@ export function createAudioPlayer(deps: AudioPlayerDeps = {}): AudioPlayer {
       });
     } catch (error) {
       killAll();
-      setState({ ...IDLE, key, status: "error", error: "para escuchar audios hace falta ffmpeg (y pw-cat)" });
+      setState({ ...IDLE, key, status: "error", error: (deps.platform ?? currentPlatform()) === "darwin" ? "para escuchar audios hace falta ffmpeg" : "para escuchar audios hace falta ffmpeg (y pw-cat)" });
       log.warn("audio.spawn-failed", { error_name: error instanceof Error ? error.name : "error" });
     }
   }

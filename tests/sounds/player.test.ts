@@ -44,7 +44,7 @@ function setup(opts: { sounds?: Partial<SoundSettings>; outputDevice?: string | 
     getSettings: () => settings,
     isDeaf: () => deaf,
     mixerSink: () => (inCall ? { play: (frames) => void mixed.push(frames) } : null),
-    startPlayback: (o) => startPlayback({ ...o, spawn: fake.spawn }),
+    startPlayback: (o) => startPlayback({ ...o, spawn: fake.spawn, platform: "linux" }),
     now: () => t,
     sleep: async () => {},
   });

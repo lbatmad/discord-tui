@@ -54,6 +54,13 @@ if ! (cd "$DIR" && bun install --frozen-lockfile >/dev/null 2>&1); then
   (cd "$DIR" && bun install >/dev/null) || fail "no se pudieron instalar las dependencias."
 fi
 
+if [ "$PLATFORM" = darwin ]; then
+  say "compilando el helper de audio…"
+  if ! command -v swiftc >/dev/null 2>&1 || ! (cd "$DIR" && sh scripts/build-audio-helper.sh); then
+    say "no se pudo compilar el helper: la captura de voz no va a funcionar. Instalá las Command Line Tools con xcode-select --install y volvé a correr el instalador; el chat sigue funcionando."
+  fi
+fi
+
 mkdir -p "$BIN"
 ln -sf "$DIR/bin/zcord" "$BIN/zcord"
 

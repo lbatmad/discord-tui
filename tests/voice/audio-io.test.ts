@@ -2,11 +2,14 @@ import { describe, expect, test } from "bun:test";
 
 import {
   AudioDeviceError,
-  startCapture,
-  startPlayback,
+  startCapture as actualStartCapture,
+  startPlayback as actualStartPlayback,
   type SpawnLike,
 } from "../../src/voice/audio-io";
 import { FRAME_BYTES } from "../helpers/pcm";
+
+const startCapture: typeof actualStartCapture = (opts) => actualStartCapture({ platform: "linux", ...opts });
+const startPlayback: typeof actualStartPlayback = (opts) => actualStartPlayback({ platform: "linux", ...opts });
 
 interface FakeProc {
   cmd: string[];
@@ -86,6 +89,22 @@ const CAPTURE_BASE = ["pw-record", "--raw", "--format", "s16", "--rate", "48000"
 const CAPTURE_ARGS = [...CAPTURE_BASE, "-"];
 const PLAYBACK_BASE = ["pw-cat", "--playback", "--raw", "--format", "s16", "--rate", "48000", "--channels", "2"];
 const PLAYBACK_ARGS = [...PLAYBACK_BASE, "-"];
+
+test("macOS uses the native capture helper and reports a missing helper", async () => {
+  const fake = fakeSpawn();
+  const capture = await startCapture({ platform: "darwin", spawn: fake.spawn, helperExecutable: () => true, target: "Mic" });
+  expect(fake.calls[0]!.cmd).toEqual([expect.stringContaining("dist/native/audio-capture"), "--device", "Mic"]);
+  await capture.stop();
+  await expect(startCapture({ platform: "darwin", spawn: fake.spawn, helperExecutable: () => false })).rejects.toThrow(/dist\/native\/audio-capture.*sh scripts\/build-audio-helper\.sh/);
+  expect(fake.calls).toHaveLength(1);
+});
+
+test("macOS playback uses audiotoolbox", async () => {
+  const fake = fakeSpawn();
+  const playback = await startPlayback({ platform: "darwin", spawn: fake.spawn });
+  expect(fake.calls[0]!.cmd).toEqual(["ffmpeg", "-hide_banner", "-nostdin", "-f", "s16le", "-ar", "48000", "-ac", "2", "-i", "-", "-f", "audiotoolbox", "-"]);
+  await playback.stop();
+});
 
 describe("startCapture", () => {
   test("spawns pw-record with the exact args", async () => {

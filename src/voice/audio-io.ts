@@ -1,4 +1,7 @@
+import { accessSync, constants } from "node:fs";
 import { cleanEnv } from "../proc/spawn";
+import type { Platform } from "../proc/platform";
+import { audioBackend } from "./backend";
 import { createFramer } from "./pcm-framer";
 
 export interface ProcLike {
@@ -53,22 +56,27 @@ export interface AudioCapture {
   stop(): Promise<void>;
 }
 
-export async function startCapture(opts?: { target?: string; spawn?: SpawnLike }): Promise<AudioCapture> {
+export async function startCapture(opts?: { target?: string; spawn?: SpawnLike; platform?: Platform; helperExecutable?: (path: string) => boolean }): Promise<AudioCapture> {
   const spawn = opts?.spawn ?? defaultSpawn();
-  const cmd = ["pw-record", "--raw", "--format", "s16", "--rate", "48000", "--channels", "2", "--latency", "20ms"];
-  if (opts?.target) cmd.push("--target", opts.target);
-  cmd.push("-");
+  const backend = audioBackend(opts?.platform);
+  const cmd = backend.capture(opts?.target);
+  const executable = opts?.helperExecutable ?? ((path: string) => {
+    try { accessSync(path, constants.X_OK); return true; } catch { return false; }
+  });
+  if (backend.needsHelper && !executable(cmd[0]!)) {
+    throw new AudioDeviceError(`falta el ejecutable ${cmd[0]}; ejecutá sh scripts/build-audio-helper.sh`);
+  }
 
   let proc: ProcLike;
   try {
     proc = spawn(cmd, { stdin: "ignore", stdout: "pipe" });
   } catch (error) {
     throw new AudioDeviceError(
-      `no pude abrir el micrófono (pw-record: ${error instanceof Error ? error.message : String(error)})`,
+      `no pude abrir el micrófono (${cmd[0]}: ${error instanceof Error ? error.message : String(error)})`,
     );
   }
 
-  await waitForEarlyExit(proc, "no pude abrir el micrófono", "pw-record");
+  await waitForEarlyExit(proc, "no pude abrir el micrófono", cmd[0]!);
 
   const framer = createFramer();
   const listeners = new Set<(pcm: Uint8Array) => void>();
@@ -118,22 +126,21 @@ export async function startPlayback(opts?: {
   target?: string;
   spawn?: SpawnLike;
   queuedFrames?: number;
+  platform?: Platform;
 }): Promise<AudioPlayback> {
   const spawn = opts?.spawn ?? defaultSpawn();
-  const cmd = ["pw-cat", "--playback", "--raw", "--format", "s16", "--rate", "48000", "--channels", "2"];
-  if (opts?.target) cmd.push("--target", opts.target);
-  cmd.push("-");
+  const cmd = audioBackend(opts?.platform).playback(opts?.target);
 
   let proc: ProcLike;
   try {
     proc = spawn(cmd, { stdin: "pipe", stdout: "ignore" });
   } catch (error) {
     throw new AudioDeviceError(
-      `no pude abrir la salida de audio (pw-cat: ${error instanceof Error ? error.message : String(error)})`,
+      `no pude abrir la salida de audio (${cmd[0]}: ${error instanceof Error ? error.message : String(error)})`,
     );
   }
 
-  await waitForEarlyExit(proc, "no pude abrir la salida de audio", "pw-cat");
+  await waitForEarlyExit(proc, "no pude abrir la salida de audio", cmd[0]!);
 
   const maxQueued = opts?.queuedFrames ?? 10;
   const queue: Uint8Array[] = [];

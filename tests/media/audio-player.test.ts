@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 
-import { createAudioPlayer, formatDuration, isAudioAttachment, waveformBars } from "../../src/media/audio-player";
+import { createAudioPlayer as actualCreateAudioPlayer, formatDuration, isAudioAttachment, waveformBars } from "../../src/media/audio-player";
+
+const createAudioPlayer: typeof actualCreateAudioPlayer = (deps) => actualCreateAudioPlayer({ platform: "linux", ...deps });
 
 const URL_OK = "https://cdn.discordapp.com/attachments/1/2/voice-message.ogg?ex=1&is=2&hm=3";
 
@@ -29,6 +31,14 @@ test("plays through ffmpeg → pw-cat on the chosen output, and a second toggle 
   player.toggle("att-1", URL_OK);
   expect(fake.killed).toEqual(["ffmpeg", "pw-cat"]);
   expect(player.state().status).toBe("idle");
+});
+
+test("macOS plays attachments through audiotoolbox", () => {
+  const fake = fakeSpawn();
+  const player = createAudioPlayer({ platform: "darwin", spawn: fake.spawn as never });
+  player.toggle("a", URL_OK);
+  expect(fake.calls[1]).toEqual(["ffmpeg", "-hide_banner", "-nostdin", "-f", "s16le", "-ar", "48000", "-ac", "2", "-i", "-", "-f", "audiotoolbox", "-"]);
+  player.stop();
 });
 
 test("when it ends it goes back to idle; a decode failure says so", async () => {

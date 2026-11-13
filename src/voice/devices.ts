@@ -1,4 +1,7 @@
 import { spawnClean } from "../proc/spawn";
+import { currentPlatform, type Platform } from "../proc/platform";
+import { log } from "../log/logger";
+import { audioHelperPath } from "./backend";
 
 export interface AudioDevice {
   name: string;
@@ -10,7 +13,7 @@ export type DeviceSpawn = (cmd: string[]) => {
   exited: Promise<number>;
 };
 
-export async function listAudioDevices(deps?: { spawn?: DeviceSpawn }): Promise<{
+export async function listAudioDevices(deps?: { spawn?: DeviceSpawn; platform?: Platform }): Promise<{
   inputs: AudioDevice[];
   outputs: AudioDevice[];
   /** `node.name` de la salida/entrada predeterminada del sistema (metadata "default" de PipeWire). */
@@ -18,6 +21,23 @@ export async function listAudioDevices(deps?: { spawn?: DeviceSpawn }): Promise<
   defaultInput?: string | null;
 }> {
   const spawn = deps?.spawn ?? ((cmd: string[]) => spawnClean(cmd, { stdout: "pipe" }));
+  if ((deps?.platform ?? currentPlatform()) === "darwin") {
+    log.warn("audio.output-enumeration-unavailable", { state: "macOS: solo se ofrece la salida predeterminada" });
+    try {
+      const proc = spawn([audioHelperPath(), "--list-devices"]);
+      const stream = proc.stdout as unknown as ReadableStream<Uint8Array> | null;
+      const text = stream ? await new Response(stream).text() : "";
+      if (await proc.exited !== 0) return { inputs: [], outputs: [] };
+      const inputs = text.split(/\r?\n/).flatMap((line) => {
+        const match = /^\d+\t(.+)$/.exec(line);
+        return match ? [{ name: match[1]!, description: match[1]! }] : [];
+      });
+      return { inputs, outputs: [] };
+    } catch {
+      log.warn("audio.input-enumeration-failed", { state: "ejecutá sh scripts/build-audio-helper.sh" });
+      return { inputs: [], outputs: [] };
+    }
+  }
   const proc = spawn(["pw-dump"]);
   const stream = proc.stdout as unknown as ReadableStream<Uint8Array> | null;
   const text = stream ? await new Response(stream).text() : "";

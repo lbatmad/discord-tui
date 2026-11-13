@@ -14,9 +14,20 @@ function fakeSpawn(stdout: string) {
     }) as never) as never;
 }
 
+test("macOS enumerates helper input names and offers only the system default output", async () => {
+  let command: string[] = [];
+  const devices = await listAudioDevices({ platform: "darwin", spawn: (cmd) => {
+    command = cmd;
+    return { stdout: new Response("0\tBuilt-in Mic\n1\tUSB Mic\n").body, exited: Promise.resolve(0) };
+  }});
+  expect(command).toEqual([expect.stringContaining("dist/native/audio-capture"), "--list-devices"]);
+  expect(devices.inputs).toEqual([{ name: "Built-in Mic", description: "Built-in Mic" }, { name: "USB Mic", description: "USB Mic" }]);
+  expect(devices.outputs).toEqual([]);
+});
+
 describe("listAudioDevices", () => {
   test("splits sources and sinks from pw-dump, ignoring non-audio nodes", async () => {
-    const devices = await listAudioDevices({ spawn: fakeSpawn(fixture) as never });
+    const devices = await listAudioDevices({ platform: "linux", spawn: fakeSpawn(fixture) as never });
     expect(devices.inputs).toEqual([
       { name: "alsa_input.usb-Blue_Microphones-00.analog-stereo", description: "Blue Yeti Analog Stereo" },
     ]);
@@ -56,6 +67,7 @@ test("the system default output comes from PipeWire's default metadata, and outp
     { type: "PipeWire:Interface:Metadata", props: { "metadata.name": "default" }, metadata: [{ key: "default.audio.sink", value: { name: "bluez_output.AE01" } }] },
   ];
   const devices = await listAudioDevices({
+    platform: "linux",
     spawn: () => ({ stdout: new Response(JSON.stringify(dump)).body, exited: Promise.resolve(0) }),
   });
   expect(devices.defaultOutput).toBe("bluez_output.AE01");

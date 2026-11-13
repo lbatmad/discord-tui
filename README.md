@@ -71,6 +71,11 @@ zcord
   sistema (`yay -Syu`). El `PKGBUILD` vive en `packaging/aur/`.
 - **Requisitos:** Linux con PipeWire y Wayland, y una terminal con protocolo Kitty (Ghostty o Kitty). Opcionales:
   `wl-clipboard` (pegar y copiar), `ffmpeg` o `wf-recorder` (pantalla compartida).
+- **macOS:** el chat anda, con portapapeles (`pbcopy`/`pbpaste`), links (`open`) y notificaciones (`osascript`)
+  nativos. La captura de voz usa un helper nativo que el instalador intenta compilar con las Command Line Tools
+  (`xcode-select --install`); la reproducción usa `ffmpeg` opcional. La captura con micrófono real y una llamada
+  real todavía no se verificaron; la salida usa el dispositivo predeterminado. Go Live / pantalla compartida
+  todavía no está portado. Opcional: `pngpaste` (`brew install pngpaste`) para pegar capturas del portapapeles.
 - **Desde el código:** `git clone https://github.com/gonzalonicolasr/discord-tui && cd discord-tui && bun install && bin/zcord`.
   Dentro de la app, `?` muestra todas las teclas.
 

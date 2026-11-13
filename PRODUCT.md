@@ -31,7 +31,10 @@ gráfico de Kitty. Todo es clickeable y, a la vez, se maneja entero con el tecla
 
 ## Operating Context
 
-- Linux con PipeWire y Wayland; terminal Ghostty o Kitty; Bun.
+- Linux con PipeWire y Wayland; terminal Ghostty o Kitty; Bun. En macOS corre el chat (portapapeles,
+  links y notificaciones nativas); la captura de voz usa un helper nativo que el instalador intenta compilar con
+  las Command Line Tools (`xcode-select --install`) y la reproducción usa `ffmpeg` opcional. `pngpaste` permite
+  pegar imágenes. Go Live / pantalla compartida todavía no está portado. No se verificó una llamada real.
 - Se loguea con la cuenta personal (QR o token). `bin/zcord demo` muestra la UI con datos falsos, sin conectarse.
 - Opcionales: `wl-clipboard` (pegar), `wf-recorder`/`ffmpeg` (pantalla compartida).
 
@@ -45,7 +48,9 @@ gráfico de Kitty. Todo es clickeable y, a la vez, se maneja entero con el tecla
 - Adjuntos: pegar captura o archivos copiados (`Ctrl-v`), adjuntar por ruta.
 - Teclas reales: `i` escribir, `j/k`, `Ctrl-k` saltar, `r` responder, `e` editar, `dd` borrar, `+` reaccionar,
   `v` voz, `m` mute, espacio PTT, `S` transmitir, `w` ver transmisión, `?` ayuda.
-- Solo Linux. No hay binarios ni paquetes: se corre desde el repo.
+- Linux y macOS: en Mac el helper nativo captura voz y `ffmpeg` la reproduce; la salida usa el dispositivo
+  predeterminado y no se verificó una llamada real. Go Live / pantalla compartida todavía no está portado.
+  El instalador intenta compilar el helper con las Command Line Tools; `pngpaste` permite pegar imágenes.
 - Abierto: el repo (github.com/gonzalonicolasr/discord-tui) hoy es privado; Gon eligió que la landing lleve a
   probarlo, así que se hace público después de revisar el historial.
 
