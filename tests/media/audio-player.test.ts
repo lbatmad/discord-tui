@@ -21,10 +21,21 @@ function fakeSpawn(opts: { decodeExit?: number; throws?: boolean } = {}) {
   return { spawn, calls, killed, finish };
 }
 
+function withPinnedFfmpeg<T>(fn: () => T): T {
+  const prev = process.env.ZCORD_FFMPEG;
+  process.env.ZCORD_FFMPEG = "ffmpeg"; // pin: sin esto el argv depende del PATH de la máquina que corre los tests
+  try {
+    return fn();
+  } finally {
+    if (prev === undefined) delete process.env.ZCORD_FFMPEG;
+    else process.env.ZCORD_FFMPEG = prev;
+  }
+}
+
 test("plays through ffmpeg → pw-cat on the chosen output, and a second toggle stops it", async () => {
   const fake = fakeSpawn();
-  const player = createAudioPlayer({ spawn: fake.spawn as never, target: () => "alsa_output.usb-AE01", now: () => 1000 });
-  player.toggle("att-1", URL_OK);
+  const player = withPinnedFfmpeg(() => createAudioPlayer({ spawn: fake.spawn as never, target: () => "alsa_output.usb-AE01", now: () => 1000 }));
+  withPinnedFfmpeg(() => player.toggle("att-1", URL_OK));
   expect(fake.calls[0]).toEqual(["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-i", URL_OK, "-f", "s16le", "-ar", "48000", "-ac", "2", "pipe:1"]);
   expect(fake.calls[1]).toEqual(["pw-cat", "--playback", "--raw", "--format", "s16", "--rate", "48000", "--channels", "2", "--target", "alsa_output.usb-AE01", "-"]);
   expect(player.state()).toMatchObject({ key: "att-1", status: "playing", startedAt: 1000 });
@@ -35,10 +46,25 @@ test("plays through ffmpeg → pw-cat on the chosen output, and a second toggle 
 
 test("macOS plays attachments through audiotoolbox", () => {
   const fake = fakeSpawn();
-  const player = createAudioPlayer({ platform: "darwin", spawn: fake.spawn as never });
-  player.toggle("a", URL_OK);
+  const player = withPinnedFfmpeg(() => createAudioPlayer({ platform: "darwin", spawn: fake.spawn as never }));
+  withPinnedFfmpeg(() => player.toggle("a", URL_OK));
   expect(fake.calls[1]).toEqual(["ffmpeg", "-hide_banner", "-nostdin", "-f", "s16le", "-ar", "48000", "-ac", "2", "-i", "-", "-f", "audiotoolbox", "-"]);
   player.stop();
+});
+
+test("decode resolves ffmpeg by absolute path (GUI terminals arrancan sin /opt/homebrew/bin)", () => {
+  const fake = fakeSpawn();
+  const prev = process.env.ZCORD_FFMPEG;
+  process.env.ZCORD_FFMPEG = "/opt/homebrew/bin/ffmpeg";
+  try {
+    const player = createAudioPlayer({ spawn: fake.spawn as never, target: () => "out" });
+    player.toggle("a", URL_OK);
+  } finally {
+    if (prev === undefined) delete process.env.ZCORD_FFMPEG;
+    else process.env.ZCORD_FFMPEG = prev;
+  }
+  expect(fake.calls[0]![0]).toBe("/opt/homebrew/bin/ffmpeg");
+  expect(fake.calls[0]!.slice(1)).toEqual(["-hide_banner", "-loglevel", "error", "-nostdin", "-i", URL_OK, "-f", "s16le", "-ar", "48000", "-ac", "2", "pipe:1"]);
 });
 
 test("when it ends it goes back to idle; a decode failure says so", async () => {

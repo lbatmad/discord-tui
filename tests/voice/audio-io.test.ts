@@ -101,8 +101,32 @@ test("macOS uses the native capture helper and reports a missing helper", async 
 
 test("macOS playback uses audiotoolbox", async () => {
   const fake = fakeSpawn();
-  const playback = await startPlayback({ platform: "darwin", spawn: fake.spawn });
+  const prev = process.env.ZCORD_FFMPEG;
+  process.env.ZCORD_FFMPEG = "ffmpeg"; // pin: sin esto el argv depende del PATH de la máquina que corre los tests
+  let playback: Awaited<ReturnType<typeof startPlayback>>;
+  try {
+    playback = await startPlayback({ platform: "darwin", spawn: fake.spawn });
+  } finally {
+    if (prev === undefined) delete process.env.ZCORD_FFMPEG;
+    else process.env.ZCORD_FFMPEG = prev;
+  }
   expect(fake.calls[0]!.cmd).toEqual(["ffmpeg", "-hide_banner", "-nostdin", "-f", "s16le", "-ar", "48000", "-ac", "2", "-i", "-", "-f", "audiotoolbox", "-"]);
+  await playback.stop();
+});
+
+test("macOS playback resolves ffmpeg by absolute path (GUI terminals arrancan sin /opt/homebrew/bin)", async () => {
+  const fake = fakeSpawn();
+  const prev = process.env.ZCORD_FFMPEG;
+  process.env.ZCORD_FFMPEG = "/opt/homebrew/bin/ffmpeg";
+  let playback: Awaited<ReturnType<typeof startPlayback>>;
+  try {
+    playback = await startPlayback({ platform: "darwin", spawn: fake.spawn });
+  } finally {
+    if (prev === undefined) delete process.env.ZCORD_FFMPEG;
+    else process.env.ZCORD_FFMPEG = prev;
+  }
+  expect(fake.calls[0]!.cmd[0]).toBe("/opt/homebrew/bin/ffmpeg");
+  expect(fake.calls[0]!.cmd.slice(1)).toEqual(["-hide_banner", "-nostdin", "-f", "s16le", "-ar", "48000", "-ac", "2", "-i", "-", "-f", "audiotoolbox", "-"]);
   await playback.stop();
 });
 

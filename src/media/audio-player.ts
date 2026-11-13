@@ -4,7 +4,7 @@ import { isAllowedImageHost } from "../images/cdn";
 import { log } from "../log/logger";
 import { spawnClean } from "../proc/spawn";
 import { currentPlatform, type Platform } from "../proc/platform";
-import { audioBackend } from "../voice/backend";
+import { audioBackend, ffmpegPath } from "../voice/backend";
 
 /** Qué está sonando (un audio a la vez, como Discord). */
 export interface AudioPlayerState {
@@ -76,7 +76,7 @@ export function createAudioPlayer(deps: AudioPlayerDeps = {}): AudioPlayer {
     setState({ key, status: "loading", startedAt: 0, error: null });
     try {
       const decoder = spawn(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-i", url, "-f", "s16le", "-ar", "48000", "-ac", "2", "pipe:1"],
+        [ffmpegPath(), "-hide_banner", "-loglevel", "error", "-nostdin", "-i", url, "-f", "s16le", "-ar", "48000", "-ac", "2", "pipe:1"],
         { stdin: "ignore", stdout: "pipe" },
       );
       const target = deps.target?.() ?? null;

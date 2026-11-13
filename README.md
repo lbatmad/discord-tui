@@ -73,9 +73,11 @@ zcord
   `wl-clipboard` (pegar y copiar), `ffmpeg` o `wf-recorder` (pantalla compartida).
 - **macOS:** el chat anda, con portapapeles (`pbcopy`/`pbpaste`), links (`open`) y notificaciones (`osascript`)
   nativos. La captura de voz usa un helper nativo que el instalador intenta compilar con las Command Line Tools
-  (`xcode-select --install`); la reproducción usa `ffmpeg` opcional. La captura con micrófono real y una llamada
-  real todavía no se verificaron; la salida usa el dispositivo predeterminado. Go Live / pantalla compartida
-  todavía no está portado. Opcional: `pngpaste` (`brew install pngpaste`) para pegar capturas del portapapeles.
+  (`xcode-select --install`); la reproducción usa `ffmpeg` (se resuelve por `PATH` y, si la terminal arrancó
+  sin él, por `/opt/homebrew/bin` y similares; `ZCORD_FFMPEG` lo fija a mano). Verificado con micrófono
+  Bluetooth real y en una llamada de voz; la salida usa el dispositivo predeterminado. Go Live / pantalla
+  compartida todavía no está portado. Opcional: `pngpaste` (`brew install pngpaste`) para pegar capturas del
+  portapapeles.
 - **Desde el código:** `git clone https://github.com/gonzalonicolasr/discord-tui && cd discord-tui && bun install && bin/zcord`.
   Dentro de la app, `?` muestra todas las teclas.
 
