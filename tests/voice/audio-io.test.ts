@@ -20,16 +20,26 @@ interface FakeProc {
   stdout: ReadableStream<Uint8Array> | null;
   stderr: ReadableStream<Uint8Array> | null;
   emit(chunk: Uint8Array): void;
+  emitStderr(chunk: Uint8Array): void;
   finish(code: number): void;
 }
 
-function fakeSpawn(opts: { exitImmediately?: number; stderrText?: string } = {}) {
+function fakeSpawn(opts: { exitImmediately?: number; stderrText?: string; keepStderrOpen?: boolean } = {}) {
   const calls: FakeProc[] = [];
   const spawn: SpawnLike = (cmd) => {
     let controller!: ReadableStreamDefaultController<Uint8Array>;
     const stdout = new ReadableStream<Uint8Array>({
       start(c) {
         controller = c;
+      },
+    });
+    let stderrController!: ReadableStreamDefaultController<Uint8Array>;
+    const stderr = new ReadableStream<Uint8Array>({
+      start(c) {
+        stderrController = c;
+        if (opts.stderrText) c.enqueue(new TextEncoder().encode(opts.stderrText));
+        // keepStderrOpen simula una tubería viva: el drenaje del código tiene que seguirla leyendo.
+        if (!opts.keepStderrOpen) c.close();
       },
     });
     let resolveExit!: (code: number) => void;
@@ -59,19 +69,29 @@ function fakeSpawn(opts: { exitImmediately?: number; stderrText?: string } = {})
       killed: false,
       kill() {
         this.killed = true;
+        // Como el proceso real: al morir se cierran las tuberías (el drenaje de stderr termina).
+        try {
+          stderrController.close();
+        } catch {}
         resolveExit(0);
       },
       exited,
       stdout,
-      stderr: opts.stderrText
-        ? new Response(opts.stderrText).body
-        : new Response("").body,
+      stderr,
       emit(chunk: Uint8Array) {
         controller.enqueue(chunk);
+      },
+      emitStderr(chunk: Uint8Array) {
+        try {
+          stderrController.enqueue(chunk);
+        } catch {}
       },
       finish(code: number) {
         try {
           controller.close();
+        } catch {}
+        try {
+          stderrController.close();
         } catch {}
         resolveExit(code);
       },
@@ -174,6 +194,49 @@ describe("startCapture", () => {
     const fake = fakeSpawn();
     const capture = await startCapture({ spawn: fake.spawn });
     await capture.stop();
+    expect(fake.calls[0]?.killed).toBe(true);
+  });
+
+  test("a helper that dies after startup fires onError exactly once with the exit diagnostic", async () => {
+    const fake = fakeSpawn({ stderrText: "cannot start audio engine: device disconnected" });
+    const errors: string[] = [];
+    const capture = await startCapture({ spawn: fake.spawn, onError: (message) => errors.push(message) });
+    fake.calls[0]!.finish(1);
+    await Bun.sleep(50);
+    expect(errors).toEqual(["el micrófono se cortó (pw-record: cannot start audio engine: device disconnected)"]);
+    await capture.stop();
+    await Bun.sleep(10);
+    expect(errors).toHaveLength(1);
+  });
+
+  test("a death without stderr diagnostics reports the exit code", async () => {
+    const fake = fakeSpawn();
+    const errors: string[] = [];
+    const capture = await startCapture({ spawn: fake.spawn, onError: (message) => errors.push(message) });
+    fake.calls[0]!.finish(3);
+    await Bun.sleep(50);
+    expect(errors).toEqual(["el micrófono se cortó (pw-record: salió con código 3)"]);
+    await capture.stop();
+  });
+
+  test("stderr written after startup is drained and survives as the exit reason", async () => {
+    const fake = fakeSpawn({ keepStderrOpen: true });
+    const errors: string[] = [];
+    const capture = await startCapture({ spawn: fake.spawn, onError: (message) => errors.push(message) });
+    fake.calls[0]!.emitStderr(new TextEncoder().encode("fail: cannot start audio engine\n"));
+    fake.calls[0]!.finish(0);
+    await Bun.sleep(50);
+    expect(errors).toEqual(["el micrófono se cortó (pw-record: fail: cannot start audio engine)"]);
+    await capture.stop();
+  });
+
+  test("an explicit stop() never fires onError (deliberate kill by the app)", async () => {
+    const fake = fakeSpawn({ keepStderrOpen: true });
+    const errors: string[] = [];
+    const capture = await startCapture({ spawn: fake.spawn, onError: (message) => errors.push(message) });
+    await capture.stop();
+    await Bun.sleep(10);
+    expect(errors).toEqual([]);
     expect(fake.calls[0]?.killed).toBe(true);
   });
 });

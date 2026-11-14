@@ -68,3 +68,14 @@ L8. (2026-11-13, noche) Falla de entorno encontrada en la llamada real: una term
    PATH > `/opt/homebrew/bin` etc. > `ffmpeg` pelado), aplicado al playback de voz y al decode de
    adjuntos (`src/media/audio-player.ts`). Tests: `tests/voice/backend.test.ts` (nuevo) + call-site
    en audio-io y audio-player, con `ZCORD_FFMPEG` pineando los argv exactos preexistentes.
+L9. (2026-11-13) Judgment Day ronda 1 — fix de JD-A-001 (CRITICAL): `startCapture` no observaba la muerte
+   del helper pasada la sonda de 30 ms: el lector de stdout solo cortaba con `done` y no había ningún
+   callback de error (a diferencia de `startPlayback`, que trackea `proc.exited`). Si el helper de macOS
+   moría a mitad de llamada (permiso revocado, dispositivo desconectado, `fail("cannot start audio engine")`),
+   el mic quedaba "armado", no se transmitía nada y el usuario no veía ningún mensaje (violaba S6).
+   Fix: `startCapture` gana `onError` (opcional, se dispara UNA vez solo en muerte sin `stop()`), el stderr
+   se drena en continuo (la tubería nunca se contrapresiona y sobrevive el último diagnóstico, con fallback a
+   `salió con código N`), y `src/actions/voice.ts` cablea `onError` a `voice/micError` + `notice/push`
+   replicando el catch de arranque. El seam es neutral en plataforma; el argv de pw-record no cambia (S3).
+   Tests: `tests/voice/audio-io.test.ts` (4 nuevos con el harness de spawn falso) +
+   `tests/actions/voice-mic-death.test.ts` (nuevo, wiring del store), typecheck limpio.

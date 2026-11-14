@@ -15,7 +15,7 @@ import type { Vad } from "../voice/vad";
 import { outputLabel, type AudioDevice } from "../voice/devices";
 
 export interface VoiceMedia {
-  startCapture(opts?: { target?: string }): Promise<AudioCapture>;
+  startCapture(opts?: { target?: string; onError?: (message: string) => void }): Promise<AudioCapture>;
   startPlayback(opts?: { target?: string }): Promise<AudioPlayback>;
   createCodec(): { encode(pcm: Uint8Array): Uint8Array; decode(opus: Uint8Array): Uint8Array; destroy?(): void };
   createVad(opts: { sensitivity: "auto" | number }): Vad;
@@ -217,7 +217,16 @@ export function createVoiceActions(deps: {
     }
 
     try {
-      const mic = await deps.media.startCapture({ target: s.inputDevice ?? undefined });
+      const mic = await deps.media.startCapture({
+        target: s.inputDevice ?? undefined,
+        // El helper murió a mitad de llamada: sin esto el mic quedaba "armado" sin transmitir ni aviso (S6).
+        onError: (message) => {
+          if (generation !== media) return;
+          log.warn("voice.mic", { state: "died" });
+          store.dispatch({ type: "voice/micError", error: message });
+          store.dispatch({ type: "notice/push", key: "voice-mic", level: "warn", text: message });
+        },
+      });
       if (generation !== media) return void mic.stop();
       capture = mic;
       vad = deps.media.createVad({ sensitivity: s.vadSensitivity });

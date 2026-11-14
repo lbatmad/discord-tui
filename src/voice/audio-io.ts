@@ -56,7 +56,17 @@ export interface AudioCapture {
   stop(): Promise<void>;
 }
 
-export async function startCapture(opts?: { target?: string; spawn?: SpawnLike; platform?: Platform; helperExecutable?: (path: string) => boolean }): Promise<AudioCapture> {
+export async function startCapture(opts?: {
+  target?: string;
+  spawn?: SpawnLike;
+  platform?: Platform;
+  helperExecutable?: (path: string) => boolean;
+  /**
+   * Si el helper muere a mitad de llamada (permiso revocado, dispositivo desconectado, fallo del motor de
+   * audio) se invoca UNA vez con el motivo. El kill propio de `stop()` jamás lo dispara (JD-A-001, spec S6).
+   */
+  onError?: (message: string) => void;
+}): Promise<AudioCapture> {
   const spawn = opts?.spawn ?? defaultSpawn();
   const backend = audioBackend(opts?.platform);
   const cmd = backend.capture(opts?.target);
@@ -77,6 +87,40 @@ export async function startCapture(opts?: { target?: string; spawn?: SpawnLike; 
   }
 
   await waitForEarlyExit(proc, "no pude abrir el micrófono", cmd[0]!);
+
+  // Drenamos el stderr en continuo: si nadie lo lee, la tubería se llena (64 KB) y congela al helper, y el
+  // último diagnóstico se pierde. Así sobrevive para avisar si el proceso muere sin que stop() lo pida.
+  let stderrTail = "";
+  let stderrDone: Promise<void> = Promise.resolve();
+  const stderr = proc.stderr;
+  if (stderr) {
+    stderrDone = (async () => {
+      const reader = stderr.getReader();
+      const decoder = new TextDecoder();
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (!value) continue;
+        stderrTail = (stderrTail + decoder.decode(value, { stream: true })).slice(-400);
+      }
+    })();
+  }
+
+  // Muerte sin stop(): el micrófono queda mudo, no se transmite nada y nadie se enteraba (JD-A-001, S6).
+  // stop() marca la bandera antes de matar al proceso, así el kill propio jamás dispara onError.
+  let stopped = false;
+  let errorFired = false;
+  void proc.exited.then((code) => {
+    if (stopped || errorFired) return;
+    errorFired = true;
+    void (async () => {
+      // El exit puede llegar justo antes de que el drenaje lea la última línea de stderr: esperamos un poco.
+      await Promise.race([stderrDone, Bun.sleep(100)]);
+      if (stopped || !opts?.onError) return;
+      const detail = stderrTail.trim() || `salió con código ${code}`;
+      opts.onError(`el micrófono se cortó (${cmd[0]}: ${detail})`);
+    })();
+  });
 
   const framer = createFramer();
   const listeners = new Set<(pcm: Uint8Array) => void>();
@@ -101,6 +145,7 @@ export async function startCapture(opts?: { target?: string; spawn?: SpawnLike; 
       return () => listeners.delete(fn);
     },
     async stop(): Promise<void> {
+      stopped = true;
       proc.kill();
       const exited = await Promise.race([proc.exited.then(() => true), Bun.sleep(500).then(() => false)]);
       if (!exited) {
